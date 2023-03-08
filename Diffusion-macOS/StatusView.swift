@@ -13,22 +13,40 @@ struct StatusView: View {
     var pipelineState: Binding<PipelineState>
     
     @State private var showErrorPopover = false
-    
+    var isInLoop=false
     func submit() {
         if case .running = generation.state { return }
+        if generation.isSubmtBTNBusy {return}
+        generation.isSubmtBTNBusy=true
         Task {
             generation.state = .running(nil)
-            do {
-                let result = try await generation.generate()
-                if result.userCanceled {
-                    generation.state = .userCanceled
-                } else {
-                    generation.state = .complete(generation.positivePrompt, result.image, result.lastSeed, result.interval)
+           for _ in 1...generation.ImageCount{
+               for promptText in generation.positivePrompts{
+                    do {
+                        generation.positivePrompt=promptText
+                        let result = try await generation.generate()
+                        if result.userCanceled {
+                            generation.state = .userCanceled
+                        } else {
+                            generation.state = .complete(generation.positivePrompt, result.image, result.lastSeed, result.interval)
+                            if let theImage = result.image {
+                                generation.generatedImages.insert(theImage, at: 0)
+                                generation.generatedImagesInfo.insert(promptText, at: 0)
+                            }
+                        }
+                    } catch {
+                        generation.state = .failed(error)
+                    }
+                    if case .userCanceled = generation.state  {
+                        generation.isSubmtBTNBusy=false
+                        return
+                        
+                    }
+                    try await Task.sleep(nanoseconds: 1_000_000_000) // 程式暫停 1 秒
                 }
-            } catch {
-                generation.state = .failed(error)
             }
         }
+        generation.isSubmtBTNBusy=false
     }
 
     func errorWithDetails(_ message: String, error: Error) -> any View {
